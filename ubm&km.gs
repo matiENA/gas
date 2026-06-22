@@ -53,7 +53,6 @@ function procesarKilometrosYViajesCore(minDate, maxDate, hacerMerge = false) {
             viajesDetalleObj = registrosAnteriores;
             
             // 👉 MAGIA PURA: Borramos de la memoria todo lo que caiga en la ventana temporal actual.
-            // Así, si borraste una hoja de ruta en el Excel, se borra del caché para siempre.
             for (let chofer in viajesDetalleObj) {
                 for (let fecha in viajesDetalleObj[chofer]) {
                     let fReg = new Date(fecha + "T12:00:00");
@@ -235,10 +234,8 @@ function ubmkm() {
 /**
  * ============================================================================
  * EXTRACCIÓN QUIRÚRGICA: onEdit PARA HOJA DE RUTA
- * (Actualizado para trabajar con Diccionarios de forma instantánea)
  * ============================================================================
  */
-
 function alEditarKilometros(e) {
   if (!e || !e.range) return;
 
@@ -319,6 +316,11 @@ function alEditarKilometros(e) {
       if (typeof escribirChunksEnFila === 'function') {
         escribirChunksEnFila(cacheSheet, 12, JSON.stringify(viajesDetalleObj));
         sheet.getParent().toast(`Hoja Ruta [${hojasParseadas.join(',')}] sincronizada`, "⚡ Caché Actualizado");
+
+        // 👇 EL GATILLO SEGURO Y BIEN UBICADO 👇
+        if (typeof notificarBackendNode === 'function') {
+            notificarBackendNode('KM');
+        }
       }
 
     } catch (error) {
@@ -331,85 +333,79 @@ function alEditarKilometros(e) {
 // LECTURA DIRECTA: EVITA CACHÉS Y FANTASMAS AL ELIMINAR ROWS
 // ====================================================================
 function obtenerViajesYHRDirecto() {
-  try {
-    // El ID de tu planilla real de KMs
-    const ID_SHEET_KILOMETROS = '1Wr-_P4mDvldif_cAx08sp7yT8uTUrajI2HQAJF6tnGM';
-    const ssKm = SpreadsheetApp.openById(ID_SHEET_KILOMETROS);
-    const sheetKm = ssKm.getSheetByName('KM') || ssKm.getSheets()[0];
-    
-    // Leemos toda la planilla en 1 solo segundo
-    const dataKm = sheetKm.getDataRange().getValues();
-    let viajesDetalleObj = {};
-    
-    // Límite para no leer viajes viejos: Últimos 60 días
-    const limiteDate = new Date();
-    limiteDate.setDate(limiteDate.getDate() - 60);
-    
-    const normalizar = (n) => String(n).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ');
-    
-    for (let i = 1; i < dataKm.length; i++) {
-      let row = dataKm[i];
-      let fechaRaw = row[1];
-      let nombreRaw = row[2];
+    try {
+      const ID_SHEET_KILOMETROS = '1Wr-_P4mDvldif_cAx08sp7yT8uTUrajI2HQAJF6tnGM';
+      const ssKm = SpreadsheetApp.openById(ID_SHEET_KILOMETROS);
+      const sheetKm = ssKm.getSheetByName('KM') || ssKm.getSheets()[0];
       
-      if (!fechaRaw || !nombreRaw) continue;
+      const dataKm = sheetKm.getDataRange().getValues();
+      let viajesDetalleObj = {};
       
-      // Parseo seguro de fecha
-      let dObj;
-      if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
-      else {
-        let parts = String(fechaRaw).split('-')[0].trim().split(/[\/\-]/);
-        if(parts.length >= 3) {
-          let aa = parts[2].length === 2 ? "20" + parts[2] : parts[2];
-          dObj = new Date(aa, parseInt(parts[1], 10) - 1, parts[0]);
-        } else { dObj = new Date(fechaRaw); }
-      }
+      const limiteDate = new Date();
+      limiteDate.setDate(limiteDate.getDate() - 60);
       
-      // Ignorar si es muy viejo o inválido
-      if (isNaN(dObj.getTime()) || dObj < limiteDate) continue;
+      const normalizar = (n) => String(n).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ');
       
-      let choferNorm = normalizar(nombreRaw);
-      let dominioRaw  = row[0];
-      let livianoNum  = parseFloat(String(row[3] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let euroNum     = parseFloat(String(row[4] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let campoNum    = parseFloat(String(row[5] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let infiniaDNum = parseFloat(String(row[7] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let hojaStr     = String(row[19] || "").trim(); // Columna T
-      
-      if (campoNum > 0 || livianoNum > 0 || euroNum > 0 || infiniaDNum > 0 || hojaStr !== "") {
-        // Ajuste horario para que la ISO sea exacta
-        let tempDate = new Date(dObj.getTime() - (dObj.getTimezoneOffset() * 60000));
-        let fechaIso = tempDate.toISOString().split('T')[0];
+      for (let i = 1; i < dataKm.length; i++) {
+        let row = dataKm[i];
+        let fechaRaw = row[1];
+        let nombreRaw = row[2];
         
-        if (!viajesDetalleObj[choferNorm]) viajesDetalleObj[choferNorm] = {};
-        if (!viajesDetalleObj[choferNorm][fechaIso]) {
-          viajesDetalleObj[choferNorm][fechaIso] = {
-            dominio: String(dominioRaw || "").trim(),
-            liviano: 0, euro: 0, campo: 0, infiniaD: 0,
-            hoja_ruta: []
-          };
+        if (!fechaRaw || !nombreRaw) continue;
+        
+        let dObj;
+        if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
+        else {
+          let parts = String(fechaRaw).split('-')[0].trim().split(/[\/\-]/);
+          if(parts.length >= 3) {
+            let aa = parts[2].length === 2 ? "20" + parts[2] : parts[2];
+            dObj = new Date(aa, parseInt(parts[1], 10) - 1, parts[0]);
+          } else { dObj = new Date(fechaRaw); }
         }
         
-        let target = viajesDetalleObj[choferNorm][fechaIso];
-        target.liviano += livianoNum;
-        target.euro += euroNum;
-        target.campo += campoNum;
-        target.infiniaD += infiniaDNum;
+        if (isNaN(dObj.getTime()) || dObj < limiteDate) continue;
         
-        if (hojaStr !== "") {
-          let arrHojas = hojaStr.split(',').map(s => s.trim()).filter(Boolean);
-          arrHojas.forEach(h => {
-            if (!target.hoja_ruta.includes(h)) target.hoja_ruta.push(h);
-          });
+        let choferNorm = normalizar(nombreRaw);
+        let dominioRaw  = row[0];
+        let livianoNum  = parseFloat(String(row[3] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let euroNum     = parseFloat(String(row[4] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let campoNum    = parseFloat(String(row[5] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let infiniaDNum = parseFloat(String(row[7] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let hojaStr     = String(row[19] || "").trim();
+        
+        if (campoNum > 0 || livianoNum > 0 || euroNum > 0 || infiniaDNum > 0 || hojaStr !== "") {
+          let tempDate = new Date(dObj.getTime() - (dObj.getTimezoneOffset() * 60000));
+          let fechaIso = tempDate.toISOString().split('T')[0];
+          
+          if (!viajesDetalleObj[choferNorm]) viajesDetalleObj[choferNorm] = {};
+          if (!viajesDetalleObj[choferNorm][fechaIso]) {
+            viajesDetalleObj[choferNorm][fechaIso] = {
+              dominio: String(dominioRaw || "").trim(),
+              liviano: 0, euro: 0, campo: 0, infiniaD: 0,
+              hoja_ruta: []
+            };
+          }
+          
+          let target = viajesDetalleObj[choferNorm][fechaIso];
+          target.liviano += livianoNum;
+          target.euro += euroNum;
+          target.campo += campoNum;
+          target.infiniaD += infiniaDNum;
+          
+          if (hojaStr !== "") {
+            let arrHojas = hojaStr.split(',').map(s => s.trim()).filter(Boolean);
+            arrHojas.forEach(h => {
+              if (!target.hoja_ruta.includes(h)) target.hoja_ruta.push(h);
+            });
+          }
         }
       }
+      
+      return JSON.stringify(viajesDetalleObj);
+    } catch(e) {
+      console.error("Error Lectura Directa HR:", e);
+      return JSON.stringify({});
     }
-    
-    return JSON.stringify(viajesDetalleObj);
-  } catch(e) {
-    console.error("Error Lectura Directa HR:", e);
-    return JSON.stringify({});
-  }
 }/**
  * ============================================================================
  * EXTRACCIÓN MASIVA: KILOMETRAJE + VIAJES CAMPO + HOJAS DE RUTA
@@ -465,7 +461,6 @@ function procesarKilometrosYViajesCore(minDate, maxDate, hacerMerge = false) {
             viajesDetalleObj = registrosAnteriores;
             
             // 👉 MAGIA PURA: Borramos de la memoria todo lo que caiga en la ventana temporal actual.
-            // Así, si borraste una hoja de ruta en el Excel, se borra del caché para siempre.
             for (let chofer in viajesDetalleObj) {
                 for (let fecha in viajesDetalleObj[chofer]) {
                     let fReg = new Date(fecha + "T12:00:00");
@@ -647,10 +642,8 @@ function ubmkm() {
 /**
  * ============================================================================
  * EXTRACCIÓN QUIRÚRGICA: onEdit PARA HOJA DE RUTA
- * (Actualizado para trabajar con Diccionarios de forma instantánea)
  * ============================================================================
  */
-
 function alEditarKilometros(e) {
   if (!e || !e.range) return;
 
@@ -731,6 +724,11 @@ function alEditarKilometros(e) {
       if (typeof escribirChunksEnFila === 'function') {
         escribirChunksEnFila(cacheSheet, 12, JSON.stringify(viajesDetalleObj));
         sheet.getParent().toast(`Hoja Ruta [${hojasParseadas.join(',')}] sincronizada`, "⚡ Caché Actualizado");
+
+        // 👇 EL GATILLO SEGURO Y BIEN UBICADO 👇
+        if (typeof notificarBackendNode === 'function') {
+            notificarBackendNode('KM');
+        }
       }
 
     } catch (error) {
@@ -743,83 +741,77 @@ function alEditarKilometros(e) {
 // LECTURA DIRECTA: EVITA CACHÉS Y FANTASMAS AL ELIMINAR ROWS
 // ====================================================================
 function obtenerViajesYHRDirecto() {
-  try {
-    // El ID de tu planilla real de KMs
-    const ID_SHEET_KILOMETROS = '1Wr-_P4mDvldif_cAx08sp7yT8uTUrajI2HQAJF6tnGM';
-    const ssKm = SpreadsheetApp.openById(ID_SHEET_KILOMETROS);
-    const sheetKm = ssKm.getSheetByName('KM') || ssKm.getSheets()[0];
-    
-    // Leemos toda la planilla en 1 solo segundo
-    const dataKm = sheetKm.getDataRange().getValues();
-    let viajesDetalleObj = {};
-    
-    // Límite para no leer viajes viejos: Últimos 60 días
-    const limiteDate = new Date();
-    limiteDate.setDate(limiteDate.getDate() - 60);
-    
-    const normalizar = (n) => String(n).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ');
-    
-    for (let i = 1; i < dataKm.length; i++) {
-      let row = dataKm[i];
-      let fechaRaw = row[1];
-      let nombreRaw = row[2];
+    try {
+      const ID_SHEET_KILOMETROS = '1Wr-_P4mDvldif_cAx08sp7yT8uTUrajI2HQAJF6tnGM';
+      const ssKm = SpreadsheetApp.openById(ID_SHEET_KILOMETROS);
+      const sheetKm = ssKm.getSheetByName('KM') || ssKm.getSheets()[0];
       
-      if (!fechaRaw || !nombreRaw) continue;
+      const dataKm = sheetKm.getDataRange().getValues();
+      let viajesDetalleObj = {};
       
-      // Parseo seguro de fecha
-      let dObj;
-      if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
-      else {
-        let parts = String(fechaRaw).split('-')[0].trim().split(/[\/\-]/);
-        if(parts.length >= 3) {
-          let aa = parts[2].length === 2 ? "20" + parts[2] : parts[2];
-          dObj = new Date(aa, parseInt(parts[1], 10) - 1, parts[0]);
-        } else { dObj = new Date(fechaRaw); }
-      }
+      const limiteDate = new Date();
+      limiteDate.setDate(limiteDate.getDate() - 60);
       
-      // Ignorar si es muy viejo o inválido
-      if (isNaN(dObj.getTime()) || dObj < limiteDate) continue;
+      const normalizar = (n) => String(n).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ');
       
-      let choferNorm = normalizar(nombreRaw);
-      let dominioRaw  = row[0];
-      let livianoNum  = parseFloat(String(row[3] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let euroNum     = parseFloat(String(row[4] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let campoNum    = parseFloat(String(row[5] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let infiniaDNum = parseFloat(String(row[7] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
-      let hojaStr     = String(row[19] || "").trim(); // Columna T
-      
-      if (campoNum > 0 || livianoNum > 0 || euroNum > 0 || infiniaDNum > 0 || hojaStr !== "") {
-        // Ajuste horario para que la ISO sea exacta
-        let tempDate = new Date(dObj.getTime() - (dObj.getTimezoneOffset() * 60000));
-        let fechaIso = tempDate.toISOString().split('T')[0];
+      for (let i = 1; i < dataKm.length; i++) {
+        let row = dataKm[i];
+        let fechaRaw = row[1];
+        let nombreRaw = row[2];
         
-        if (!viajesDetalleObj[choferNorm]) viajesDetalleObj[choferNorm] = {};
-        if (!viajesDetalleObj[choferNorm][fechaIso]) {
-          viajesDetalleObj[choferNorm][fechaIso] = {
-            dominio: String(dominioRaw || "").trim(),
-            liviano: 0, euro: 0, campo: 0, infiniaD: 0,
-            hoja_ruta: []
-          };
+        if (!fechaRaw || !nombreRaw) continue;
+        
+        let dObj;
+        if (fechaRaw instanceof Date) { dObj = fechaRaw; } 
+        else {
+          let parts = String(fechaRaw).split('-')[0].trim().split(/[\/\-]/);
+          if(parts.length >= 3) {
+            let aa = parts[2].length === 2 ? "20" + parts[2] : parts[2];
+            dObj = new Date(aa, parseInt(parts[1], 10) - 1, parts[0]);
+          } else { dObj = new Date(fechaRaw); }
         }
         
-        let target = viajesDetalleObj[choferNorm][fechaIso];
-        target.liviano += livianoNum;
-        target.euro += euroNum;
-        target.campo += campoNum;
-        target.infiniaD += infiniaDNum;
+        if (isNaN(dObj.getTime()) || dObj < limiteDate) continue;
         
-        if (hojaStr !== "") {
-          let arrHojas = hojaStr.split(',').map(s => s.trim()).filter(Boolean);
-          arrHojas.forEach(h => {
-            if (!target.hoja_ruta.includes(h)) target.hoja_ruta.push(h);
-          });
+        let choferNorm = normalizar(nombreRaw);
+        let dominioRaw  = row[0];
+        let livianoNum  = parseFloat(String(row[3] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let euroNum     = parseFloat(String(row[4] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let campoNum    = parseFloat(String(row[5] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let infiniaDNum = parseFloat(String(row[7] || '').replace(/,/g, '.').replace(/[^0-9.-]/g, '')) || 0;
+        let hojaStr     = String(row[19] || "").trim();
+        
+        if (campoNum > 0 || livianoNum > 0 || euroNum > 0 || infiniaDNum > 0 || hojaStr !== "") {
+          let tempDate = new Date(dObj.getTime() - (dObj.getTimezoneOffset() * 60000));
+          let fechaIso = tempDate.toISOString().split('T')[0];
+          
+          if (!viajesDetalleObj[choferNorm]) viajesDetalleObj[choferNorm] = {};
+          if (!viajesDetalleObj[choferNorm][fechaIso]) {
+            viajesDetalleObj[choferNorm][fechaIso] = {
+              dominio: String(dominioRaw || "").trim(),
+              liviano: 0, euro: 0, campo: 0, infiniaD: 0,
+              hoja_ruta: []
+            };
+          }
+          
+          let target = viajesDetalleObj[choferNorm][fechaIso];
+          target.liviano += livianoNum;
+          target.euro += euroNum;
+          target.campo += campoNum;
+          target.infiniaD += infiniaDNum;
+          
+          if (hojaStr !== "") {
+            let arrHojas = hojaStr.split(',').map(s => s.trim()).filter(Boolean);
+            arrHojas.forEach(h => {
+              if (!target.hoja_ruta.includes(h)) target.hoja_ruta.push(h);
+            });
+          }
         }
       }
+      
+      return JSON.stringify(viajesDetalleObj);
+    } catch(e) {
+      console.error("Error Lectura Directa HR:", e);
+      return JSON.stringify({});
     }
-    
-    return JSON.stringify(viajesDetalleObj);
-  } catch(e) {
-    console.error("Error Lectura Directa HR:", e);
-    return JSON.stringify({});
-  }
 }
