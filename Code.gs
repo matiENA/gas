@@ -1048,7 +1048,6 @@ function instalarTriggerDiagramas() {
     
   SpreadsheetApp.getActiveSpreadsheet().toast("Trigger de Diagramas instalado OK", "Éxito");
 }
-// 2. EL ESCUCHADOR (Se dispara automáticamente al editar)
 function alEditarDiagramas(e) {
   // Filtro de seguridad
   if (!e || !e.range) return;
@@ -1057,24 +1056,50 @@ function alEditarDiagramas(e) {
   const columna = e.range.getColumn();
   const nombreHoja = e.source.getActiveSheet().getName();
 
-  // 👉 LEY DE PRÄGNANZ (Filtro Estricto): 
-  // Solo actualizamos si la edición fue en el área útil del diagrama.
-  // Fila >= 6 (Donde empiezan los choferes)
-  // Columna >= 5 (Donde empiezan los días del mes, Columna E)
-  // Verificamos que el nombre de la hoja tenga formato de mes (Ej: "May-26")
+  // 👉 LEY DE PRÄGNANZ (Filtro Estricto)
   const regexMes = /^[A-Z][a-z]{2}-\d{2}$/; 
 
   if (fila >= 6 && columna >= 5 && regexMes.test(nombreHoja)) {
-    
-    // Si la edición fue en un día del mes válido, disparamos la actualización del caché G1
     try {
-      // Usamos generarJSONBase_Frecuente porque actualiza el mes pasado, actual y los dos siguientes (la ventana más probable de edición)
       generarJSONBase_Frecuente();
+      
+      // 👇=========================================👇
+      // ESTE ES EL CAMBIO: Avisamos a Node indicando QUÉ cambió
+      notificarBackendNode('DIAGRAMA'); 
+      // 👆=========================================👆
+
     } catch (error) {
       console.error("Error al sincronizar desde trigger:", error);
     }
   }
 }
+
+function alEditarDiagramas(e) {
+  // Filtro de seguridad
+  if (!e || !e.range) return;
+
+  const fila = e.range.getRow();
+  const columna = e.range.getColumn();
+  const nombreHoja = e.source.getActiveSheet().getName();
+
+  // 👉 LEY DE PRÄGNANZ (Filtro Estricto)
+  const regexMes = /^[A-Z][a-z]{2}-\d{2}$/; 
+
+  if (fila >= 6 && columna >= 5 && regexMes.test(nombreHoja)) {
+    try {
+      generarJSONBase_Frecuente();
+      
+      // 👇=========================================👇
+      // ESTE ES EL CAMBIO: Avisamos a Node indicando QUÉ cambió
+      notificarBackendNode('DIAGRAMA'); 
+      // 👆=========================================👆
+
+    } catch (error) {
+      console.error("Error al sincronizar desde trigger:", error);
+    }
+  }
+}
+
 function vencimientosUnidades() {
   // 1. Referencias y Conexiones (Ley de Proximidad)
   const ID_MASTER = '1eQ9Y5diL5fwxYTxvseNgZJFbX-lSUQ13axbp3cLiqPc';
