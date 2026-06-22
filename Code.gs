@@ -28,6 +28,11 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
   }
 
+  // Agregar esto junto a los otros "if" de tu doGet:
+  if (e && e.parameter && e.parameter.action === 'obtenerViajesYHRDirecto') {
+    return ContentService.createTextOutput(obtenerViajesYHRDirecto()).setMimeType(ContentService.MimeType.JSON);
+  }
+
 // dni extractor (alt)
   if (e && e.parameter && e.parameter.action === 'obtenerNombresMesActual') {
     return ContentService.createTextOutput(obtenerNombresMesActual()).setMimeType(ContentService.MimeType.JSON);
@@ -1295,15 +1300,16 @@ function procesarGuardadoHojaRuta(nombre, fechaIso, hojasArr, usuario, tractor) 
 }
 
 // Función que le avisa a Node.js que alguien editó el Excel
-function notificarBackendNode() {
-  // Reemplaza esto con tu URL real de Render
-  const URL_NODE_WEBHOOK = "https://diagramasnode.onrender.com/"; 
+function notificarBackendNode(tipoCambio) {
+  // 👉 AQUÍ PEGAS TU URL DE RENDER + LA RUTA DEL WEBHOOK
+  const URL_NODE_WEBHOOK = "https://diagramasnode.onrender.com/api/webhook/google";
   
   try {
     UrlFetchApp.fetch(URL_NODE_WEBHOOK, {
       method: "post",
       contentType: "application/json",
-      payload: JSON.stringify({ evento: "cambio_detectado" })
+      payload: JSON.stringify({ evento: tipoCambio }),
+      muteHttpExceptions: true 
     });
   } catch (e) {
     console.error("Error avisando a Node: " + e);
